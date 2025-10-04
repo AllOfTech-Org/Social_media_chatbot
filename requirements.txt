@@ -16,6 +16,4 @@ google-generativeai
 streamlit
 flask
 faiss-cpu
-openai
 gunicorn
-
