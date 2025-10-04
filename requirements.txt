@@ -17,4 +17,5 @@ streamlit
 flask
 faiss-cpu
 openai
+gunicorn
 
