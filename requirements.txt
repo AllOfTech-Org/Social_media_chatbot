@@ -17,3 +17,5 @@ streamlit
 flask
 faiss-cpu
 gunicorn
+python-dotenv
+
