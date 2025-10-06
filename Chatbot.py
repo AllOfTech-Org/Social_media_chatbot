@@ -1,11 +1,16 @@
 import os
 import pickle
 import faiss
+import json
 from sentence_transformers import SentenceTransformer
 import logging
 import requests
 from dotenv import load_dotenv
 
+# ✅ Hugging Face cache fix (Spaces cannot write to '/.cache')
+os.environ["HF_HOME"] = "./hf_cache"
+os.environ["TRANSFORMERS_CACHE"] = "./hf_cache"
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = "./hf_cache"
 
 # Load environment variables
 load_dotenv()
@@ -13,18 +18,22 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(
     level=logging.WARNING,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # Configuration
 PROCESSED_DATA_DIR = "processed_data"
-MODEL_NAME = "all-MiniLM-L6-v2"
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_MODEL = "deepseek/deepseek-chat-v3.1:free"
 
-# Initialize embeddings model
-embeddings_model = SentenceTransformer(MODEL_NAME)
+# ✅ Initialize SentenceTransformer safely
+try:
+    embeddings_model = SentenceTransformer(MODEL_NAME, cache_folder="./hf_cache")
+except Exception as e:
+    logger.warning(f"Could not load '{MODEL_NAME}', using fallback model.")
+    embeddings_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 class ProductData:
     def __init__(self, product_name: str):
@@ -42,10 +51,10 @@ class ProductData:
                 self.faiss_index = faiss.read_index(faiss_path)
             chunks_path = os.path.join(self.data_dir, "chunks.pkl")
             if os.path.exists(chunks_path):
-                with open(chunks_path, 'rb') as f:
+                with open(chunks_path, "rb") as f:
                     data = pickle.load(f)
-                    self.chunks = data['chunks']
-                    self.embeddings = data['embeddings']
+                    self.chunks = data["chunks"]
+                    self.embeddings = data["embeddings"]
         except Exception as e:
             logger.error(f"Error loading data for {self.product_name}: {str(e)}")
 
@@ -77,16 +86,13 @@ class SimpleChatManager:
         try:
             query_embedding = embeddings_model.encode([query])[0]
             distances, indices = product_data.faiss_index.search(
-                query_embedding.reshape(1, -1).astype('float32'), k
+                query_embedding.reshape(1, -1).astype("float32"), k
             )
             relevant_chunks = []
             for idx in indices[0]:
                 if idx < len(product_data.chunks):
                     chunk = product_data.chunks[idx]
                     relevant_chunks.append(f"[{product.upper()}] {chunk}")
-            if not relevant_chunks:
-                logger.info(f"No relevant chunks found for product {product}")
-                return []
             return relevant_chunks
         except Exception as e:
             logger.error(f"Error searching chunks for product {product}: {str(e)}")
@@ -94,18 +100,14 @@ class SimpleChatManager:
 
     def generate_response(self, query: str, context: list, product: str) -> str:
         if not context:
-            return "Welcome to AllOfTech! We're a technology agency specializing in AI/ML, blockchain, web and mobile apps, UX/UI design, and branding. How can we help you achieve your goals?"
+            return (
+                "Welcome to AllOfTech! We're a technology agency specializing in AI/ML, "
+                "blockchain, web and mobile apps, UX/UI design, and branding. "
+                "How can we help you achieve your goals?"
+            )
 
         prompt = f"""Context:\n{chr(10).join(context)}\n\nInstructions:\n
-        You are the voice of AllOfTech, a cutting-edge technology agency dedicated to delivering innovative solutions in AI/ML, blockchain, web development, mobile apps, UX/UI design, and graphics & branding. Your responses should reflect our commitment to empowering businesses with tailored, scalable, and secure digital ecosystems.
-
-        **Core Behavior:**
-        - Use a professional, approachable, and customer-focused tone.
-        - Be clear, concise, and eager to assist with actionable insights.
-        - Highlight AllOfTech's expertise in technology and design when relevant.
-        - If asked about the agency, say: "AllOfTech is a technology agency specializing in AI/ML, blockchain, web and mobile development, UX/UI design, and branding. We're here to transform your ideas into impactful digital solutions."
-        - Avoid overly technical jargon unless the query demands it, ensuring responses are accessible to all clients.
-        - If relevant, encourage users to connect via our contact channels for project discussions.
+        You are the voice of AllOfTech, a cutting-edge technology agency dedicated to delivering innovative solutions in AI/ML, blockchain, web development, mobile apps, UX/UI design, and graphics & branding.
 
         Respond to: "{query}"
         """
@@ -119,10 +121,9 @@ class SimpleChatManager:
                 },
                 data=json.dumps({
                     "model": OPENROUTER_MODEL,
-                    "messages": [
-                        {"role": "user", "content": prompt}
-                    ],
-                })
+                    "messages": [{"role": "user", "content": prompt}],
+                }),
+                timeout=30,
             )
 
             if response.status_code == 200:
@@ -135,13 +136,10 @@ class SimpleChatManager:
             logger.error(f"Error generating response: {str(e)}")
             return "System interruption detected. Please try again shortly."
 
-# Initialize the simple chat manager
+# ✅ Initialize the chatbot manager
 simple_chat_manager = SimpleChatManager()
 
 def chatbot(message: str, product: str = "AllOfTech") -> str:
-    """
-    Chatbot function that takes a message and product name, and returns the chatbot's response.
-    """
     relevant_chunks = simple_chat_manager.search_similar_chunks(message, product)
     response = simple_chat_manager.generate_response(message, relevant_chunks, product)
     return response

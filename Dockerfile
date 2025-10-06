@@ -1,25 +1,33 @@
-# Use a Python base image, preferably one with miniconda for optimized environment
+# Use a lightweight Python image
 FROM python:3.10-slim
 
-# Set the working directory inside the container
-WORKDIR /app
+# Set the working directory to root of the repo
+WORKDIR /workspace
 
-# Install system dependencies (important for FAISS and other libs)
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy the requirements file and install Python dependencies first
+# Copy dependency list first (better build caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of your application code and RAG data
+# Install system dependencies and Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -r requirements.txt
+
+# ✅ Set Hugging Face cache directories to writable paths
+ENV HF_HOME=/workspace/hf_cache
+ENV TRANSFORMERS_CACHE=/workspace/hf_cache
+ENV SENTENCE_TRANSFORMERS_HOME=/workspace/hf_cache
+
+# Create cache folder and make sure it's writable
+RUN mkdir -p /workspace/hf_cache && chmod -R 777 /workspace/hf_cache
+
+# Copy all source files (server.py, Chatbot.py, etc.)
 COPY . .
 
-# Set the environment variable for Gunicorn to bind to port 7860
-ENV PORT 7860
+# Expose port required by Hugging Face Spaces
 EXPOSE 7860
 
-# Command to run the application using Gunicorn (a production web server)
-# The format is 'gunicorn [module_name]:[app_instance] -b 0.0.0.0:$PORT'
-CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 4 server:app
+# ✅ Run Flask app using Gunicorn (entrypoint for Spaces)
+# "server:app" = file `server.py` with variable `app`
+CMD ["gunicorn", "--bind", "0.0.0.0:7860", "server:app"]
