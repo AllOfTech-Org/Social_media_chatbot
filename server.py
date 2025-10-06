@@ -2,7 +2,7 @@ from flask import Flask, request
 import requests
 import os
 from dotenv import load_dotenv
-from Chatbot import chatbot   # 👈 Your chatbot logic file
+from Chatbot import chatbot   
 
 # Load environment variables from .env (works locally, on Railway use Variables tab)
 load_dotenv()
