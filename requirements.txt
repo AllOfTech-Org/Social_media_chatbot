@@ -1,7 +1,8 @@
 requests
-python-dotenv
 flask
 gunicorn
-faiss-cpu
-sentence-transformers
-numpy 
+python-dotenv
+numpy
+transformers==4.40.1
+torch==2.2.0
+scikit-learn
